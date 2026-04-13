@@ -53,6 +53,7 @@ if __name__ == "__main__":
   - `ComfyUIClient.view_tasks`
   - `ComfyUIClient.interrupt_running_task`
   - `ComfyUIClient.delete_queued_tasks`
+  - `ComfyUIClient.get_models`
   - `ComfyUIClient.load_and_prepare_workflow`
   - `ComfyWorkflow.__init__`
   - `ComfyWorkflow.add_replacement`
@@ -411,6 +412,55 @@ await client.delete_queued_tasks(["id1", "id2"])
 #### 边缘情况
 
 - 目标任务不存在或已执行的处理由服务端决定，SDK 仅返回请求成功与否。
+
+### 4.11 `get_models(folder=None, prefer_experimental=True, filter_name=False)`
+
+#### 字段
+
+- `folder: Optional[str]`
+  - `None`：查询模型类别列表（如 `checkpoints`、`loras` 等）。
+  - 非空字符串：查询指定类别下的模型文件列表。
+- `prefer_experimental: bool`
+  - `True`（默认）：优先请求 `/api/experiment/models` 系列接口，失败后回退到 `/models` 系列接口。
+  - `False`：优先请求 `/models` 系列接口，再尝试实验接口。
+- `filter_name: bool`
+  - `False`（默认）：返回完整结构（对象列表或兼容转换后的对象列表）。
+  - `True`：仅返回 `name` 数组（`List[str]`），便于快速下拉选择或匹配过滤。
+- 返回值：`List[Any]`
+  - 类别查询通常返回对象列表（含 `name`、`folders`）或字符串列表（旧接口）。
+  - folder 查询优先返回对象列表（如 `name`、`size`、`pathIndex`、`modified`、`created`）。
+  - 若走传统 `/models/{folder}` 且仅返回字符串文件名，SDK 会转换为 `{"name": "<filename>"}` 结构，确保最小可读字段一致。
+  - 当 `filter_name=True` 时，统一返回名称字符串数组。
+
+#### 用法
+
+- 用于动态发现 ComfyUI 当前可用模型类别与具体模型文件。
+- 可直接结合 `name` 与 `size` 做模型筛选或展示。
+
+#### 示例
+
+```python
+# 1) 查询模型类别（优先 experiment）
+model_groups = await client.get_models()
+print(model_groups[0])
+
+# 2) 查询 checkpoints 下模型文件
+checkpoint_models = await client.get_models(folder="checkpoints")
+for model in checkpoint_models:
+    model_name = model.get("name")
+    model_size = model.get("size")
+    print(model_name, model_size)
+
+# 3) 仅返回 name 数组
+checkpoint_names = await client.get_models(folder="checkpoints", filter_name=True)
+print(checkpoint_names)
+```
+
+#### 边缘情况
+
+- 指定 `folder` 不存在时，实验接口与传统接口都可能返回 404，SDK 最终返回空列表 `[]`。
+- 服务器返回非 JSON 响应或网络异常时，SDK 会记录错误并尝试回退；全部失败后返回 `[]`。
+- 不同 ComfyUI 版本返回字段可能不同，建议业务侧以 `name` 为必备字段，`size` 等字段做可选读取。
 
 ---
 

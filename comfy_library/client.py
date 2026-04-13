@@ -308,6 +308,66 @@ class ComfyUIClient:
         except Exception as e:
             print(f"获取历史记录时发生错误: {e}")
             return {}
+
+    async def get_models(self, folder: Optional[str] = None, prefer_experimental: bool = True, filter_name: bool = False) -> List[Any]:
+        if folder:
+            experimental_endpoint = f"/api/experiment/models/{folder}"
+            legacy_endpoint = f"/models/{folder}"
+        else:
+            experimental_endpoint = "/api/experiment/models"
+            legacy_endpoint = "/models"
+
+        endpoints = (
+            [experimental_endpoint, legacy_endpoint]
+            if prefer_experimental
+            else [legacy_endpoint, experimental_endpoint]
+        )
+
+        last_error: Optional[Exception] = None
+        for endpoint in endpoints:
+            try:
+                response = await self._client.get(self._get_http_url(endpoint))
+                response.raise_for_status()
+                data = response.json()
+                normalized = self._normalize_models_response(data, folder)
+                return self._extract_model_names(normalized) if filter_name else normalized
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                status = e.response.status_code if e.response else None
+                if status in (404, 405):
+                    continue
+                print(f"获取模型列表时HTTP错误 ({endpoint}): {e}")
+                return []
+            except (httpx.RequestError, json.JSONDecodeError) as e:
+                last_error = e
+                print(f"获取模型列表时发生错误 ({endpoint}): {e}")
+                continue
+
+        if last_error:
+            print(f"所有模型接口尝试均失败: {last_error}")
+        return []
+
+    @staticmethod
+    def _normalize_models_response(data: Any, folder: Optional[str]) -> List[Any]:
+        if not isinstance(data, list):
+            return []
+
+        if folder and all(isinstance(item, str) for item in data):
+            return [{"name": item} for item in data]
+
+        return data
+
+    @staticmethod
+    def _extract_model_names(items: List[Any]) -> List[str]:
+        names: List[str] = []
+        for item in items:
+            if isinstance(item, dict):
+                name = item.get("name")
+                if isinstance(name, str):
+                    names.append(name)
+            elif isinstance(item, str):
+                names.append(item)
+        return names
             
     async def view_tasks(self) -> Dict[str, List[Dict]]:
         try:
